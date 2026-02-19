@@ -6,15 +6,15 @@ export const systemPrompt = `You are a premium corporate gifting intake assistan
 
 Output shape (no markdown, no code fence):
 - assistantMessage (string, required): Your reply to the user. Premium, concise, helpful tone.
-- salesSummary (string, optional): Only when not asking a question — 1–2 sentence summary of what they need.
 - bundleSuggestions (array, optional): If bundles are provided in the turn context, you may include them. Each item must have exactly: name, unitPrice, leadTimeDays (copy values from context) and an optional why (short reason you suggest it).
 
 Rules:
 - Do NOT output or modify state, mode, complexityScore, or missing. The server sets those.
 - If bundleSuggestions are included, use the exact name, unitPrice, and leadTimeDays from context; you may only add or omit the "why" field.
-- If you are given a nextQuestion: ask exactly that one question in assistantMessage; do not ask extra questions.
-- If nextQuestion is null: write a closing assistantMessage and a short salesSummary.
-- Do not invent bundle names, prices, or lead times. Only use what the server provides.`;
+- If you are given a nextQuestion: output ONLY that question in assistantMessage. No preamble, no order recap, no "Given your budget...", no context — just the question text.
+- If nextQuestion is null: do nothing.
+- Do not invent bundle names, prices, or lead times. Only use what the server provides.
+- For all paths (streamlined, assisted, high_touch), when the next field to collect is contact (email), ask explicitly for contact — but only in that turn; never ask for contact in the same message as another question.`;
 
 // ─── User prompt args ─────────────────────────────────────────────────────────
 
@@ -80,12 +80,16 @@ export function buildUserPrompt(args: BuildUserPromptArgs): string {
     "",
     `Mode: ${mode} | Complexity score: ${complexityScore}${reasons.length > 0 ? ` | Reasons: ${reasons.join(", ")}` : ""}`,
     `Missing fields: ${missing.length > 0 ? missing.join(", ") : "none"}`,
-    nextField !== null ? `Next field to collect: ${nextField}` : "No next field (closing turn).",
-    nextQuestion !== null ? `Next question to ask (exactly one): ${nextQuestion}` : "No next question. Produce closing message + short salesSummary.",
+    nextField !== null
+      ? `Next field to collect: ${nextField}${nextField === "email" ? " (REQUIRED: ask for contact before closing)" : ""}`
+      : "No next field (closing turn).",
+    nextQuestion !== null
+      ? `Next question to ask — output ONLY this text, nothing else (no preamble, no recap): ${nextQuestion}`
+      : "No next question. No closing message.",
     "",
     bundlesBlock,
     "",
-    "Reply with strict JSON only: { \"assistantMessage\": \"...\", \"salesSummary\": \"...\" (if closing), \"bundleSuggestions\": [ { \"name\", \"unitPrice\", \"leadTimeDays\", \"why\"? } ] (optional) }.",
+    "Reply with strict JSON only: { \"assistantMessage\": \"...\", \"bundleSuggestions\": [ { \"name\", \"unitPrice\", \"leadTimeDays\", \"why\"? } ] (optional) }.",
   ].join("\n");
 }
 
@@ -100,6 +104,10 @@ const FIELD_QUESTIONS: Record<string, string> = {
   branding:
     "Do you need branding (none, sticker/insert, laser, embroidery)?",
   international: "Any international destinations (outside the US)?",
+  distributionTiming:
+    "Will all items be delivered at once, or stored and distributed later?",
+  addressHandling:
+    "Will you provide the shipping addresses, or would you like us to handle collection and distribution?",
   email: "What's the best email or phone to follow up with options?",
 };
 

@@ -107,6 +107,12 @@ export type BrandingType = "embroidery" | "laser" | "insert" | "sticker" | "none
  * Every field is optional — extractFromText only populates what it can confidently detect;
  * everything else is inherited from the previous state unchanged.
  */
+/** Bulk: all delivered at once vs stored and distributed over time. */
+export type DistributionTiming = "all_at_once" | "over_time" | "unknown";
+
+/** Individual: addresses provided by client vs handled by us. */
+export type AddressHandling = "provided" | "handled_by_us" | "unknown";
+
 export interface ChatState {
   /** Number of people / units the order covers. */
   quantity?: number;
@@ -124,6 +130,10 @@ export interface ChatState {
   phone?: string;
   /** Raw deadline phrase as the user wrote it — never parsed into a Date. */
   deadlineText?: string;
+  /** Bulk only: all at once vs stored/distributed over time. */
+  distributionTiming?: DistributionTiming;
+  /** Individual only: addresses provided vs we handle collection/distribution. */
+  addressHandling?: AddressHandling;
 }
 
 // ─── Complexity ───────────────────────────────────────────────────────────────

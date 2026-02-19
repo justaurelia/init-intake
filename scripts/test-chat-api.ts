@@ -53,6 +53,8 @@ interface Expected {
   mustCaptureLead?: boolean;
   expectQuantity?: number;
   expectBudgetPerUnitUsd?: number;
+  expectBranding?: string;
+  mustContainInMessage?: string;
 }
 
 interface TestCase {
@@ -67,7 +69,7 @@ const TEST_CASES: TestCase[] = [
     turns: [
       {
         message:
-          "We need 40 gifts, budget is $45 each, bulk to SF office, no branding, delivery in 4 weeks.",
+          "We need 40 gifts, budget is $45 each, bulk to SF office, all at once, no branding, delivery in 4 weeks.",
       },
     ],
     expected: {
@@ -82,7 +84,7 @@ const TEST_CASES: TestCase[] = [
     turns: [
       {
         message:
-          "We need 60 holiday gifts for employees, bulk to NYC office, no logo, mid-December.",
+          "We need 60 holiday gifts for employees, bulk to NYC office, all at once, no logo, mid-December.",
       },
       { message: "Around $70 each." },
     ],
@@ -97,7 +99,7 @@ const TEST_CASES: TestCase[] = [
     turns: [
       {
         message:
-          "120 gifts, $85 each, ship to home addresses across the US, include a note card, mid-December.",
+          "120 gifts, $85 each, ship to home addresses across the US, we'll provide the addresses, include a note card, mid-December.",
       },
     ],
     expected: {
@@ -111,7 +113,7 @@ const TEST_CASES: TestCase[] = [
     turns: [
       {
         message:
-          "250 embroidered hoodies, ship to US and Canada, need them in 2 weeks.",
+          "250 embroidered hoodies, ship to individual addresses in US and Canada, you handle collection and distribution, need them in 2 weeks.",
       },
       { message: "email is zezette@test.com" },
     ],
@@ -184,6 +186,78 @@ const TEST_CASES: TestCase[] = [
     expected: {
       expectQuantity: 40,
       expectBudgetPerUnitUsd: 30,
+    },
+  },
+  {
+    name: "K) I don't know (skip branding)",
+    turns: [
+      {
+        message:
+          "40 gifts, $45 each, bulk shipping, mid-December delivery.",
+      },
+      { message: "I don't know" },
+    ],
+    expected: {
+      expectBranding: "none",
+      mustContainInMessage: "No problem — we can add that later.",
+    },
+  },
+  {
+    name: "L) I don't know (skip quantity)",
+    turns: [
+      { message: "We'd like to explore a small gifting project." },
+      { message: "I'm not sure" },
+    ],
+    expected: {
+      expectQuantity: 50,
+      mustContainInMessage: "No problem — we can add that later.",
+    },
+  },
+  {
+    name: "N) Bulk + storage question (all at once)",
+    turns: [
+      { message: "50 gifts, $40 each, bulk to Chicago, no branding, 3 weeks." },
+      { message: "All at once" },
+    ],
+    expected: {
+      mustAskForEmail: true,
+    },
+  },
+  {
+    name: "O) Individual + address question (we provide)",
+    turns: [
+      {
+        message:
+          "75 gifts, $55 each, ship to home addresses, no branding, mid-March.",
+      },
+      { message: "We'll provide the addresses" },
+    ],
+    expected: {
+      mustAskForEmail: true,
+    },
+  },
+  {
+    name: "P) Not sure for distribution (bulk)",
+    turns: [
+      { message: "30 swag, $25 each, bulk, no logo, flexible." },
+      { message: "Not sure" },
+    ],
+    expected: {
+      mustContainInMessage: "No problem — we can add that later.",
+    },
+  },
+  {
+    name: "M) I don't know (skip international)",
+    turns: [
+      {
+        message:
+          "80 gifts, $40 each, ship to individual addresses, we provide the addresses, no branding, mid-January.",
+      },
+      { message: "Skip" },
+    ],
+    expected: {
+      mustContainInMessage: "No problem — we can add that later.",
+      mustAskForEmail: true,
     },
   },
 ];
@@ -286,6 +360,22 @@ async function runTestCase(tc: TestCase): Promise<{ passed: boolean; errors: str
   ) {
     errors.push(
       `expected budgetPerUnitUsd ${e.expectBudgetPerUnitUsd}, got ${finalResponse.state.budgetPerUnitUsd}`
+    );
+  }
+  if (
+    e.expectBranding !== undefined &&
+    finalResponse.state.branding !== e.expectBranding
+  ) {
+    errors.push(
+      `expected branding "${e.expectBranding}", got "${finalResponse.state.branding}"`
+    );
+  }
+  if (
+    e.mustContainInMessage !== undefined &&
+    !finalResponse.assistantMessage.includes(e.mustContainInMessage)
+  ) {
+    errors.push(
+      `expected assistantMessage to contain "${e.mustContainInMessage}"`
     );
   }
 

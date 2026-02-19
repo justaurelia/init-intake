@@ -60,14 +60,13 @@ function buildFallbackResponse(
       "This looks eligible for a streamlined flow. Here are a few ready-to-ship options. If you'd like, share your email and we'll follow up.";
   } else if (
     state1.email === undefined &&
-    state1.phone === undefined &&
-    mode !== "streamlined"
+    state1.phone === undefined
   ) {
     assistantMessage =
       "Thanks — what's the best email or phone to follow up with a tailored proposal?";
   } else {
     assistantMessage =
-      "Thanks — we've got what we need. We'll follow up shortly.";
+      "Thanks — you can submit your request now, or keep adding details before you send it.";
   }
 
   const bullets: string[] = [];
@@ -249,9 +248,9 @@ export async function POST(request: Request) {
     let missingNonEmail = missing.filter((f) => f !== "email");
     let nextField: string | null =
       missingNonEmail.length > 0 ? missingNonEmail[0]! : null;
+    // Always ask for contact last when it's the only missing field
     if (
       nextField === null &&
-      mode !== "streamlined" &&
       state1.email === undefined &&
       state1.phone === undefined &&
       missing.includes("email")
@@ -262,11 +261,23 @@ export async function POST(request: Request) {
     // 5b) When user said "I don't know", treat current field as skipped and move to the next
     if (userSaidUnsure && nextField) {
       const skipValue: Partial<ChatState> =
-        nextField === "branding"
-          ? { branding: "none" }
-          : nextField === "international"
-            ? { international: false }
-            : {};
+        nextField === "quantity"
+          ? { quantity: 50 }
+          : nextField === "budgetPerUnitUsd"
+            ? { budgetPerUnitUsd: 50 }
+            : nextField === "deadlineText"
+              ? { deadlineText: "flexible" }
+              : nextField === "shippingType"
+                ? { shippingType: "unknown" as const }
+                : nextField === "branding"
+                  ? { branding: "none" }
+                  : nextField === "international"
+                    ? { international: false }
+                    : nextField === "distributionTiming"
+                      ? { distributionTiming: "unknown" as const }
+                      : nextField === "addressHandling"
+                        ? { addressHandling: "unknown" as const }
+                        : {};
       if (Object.keys(skipValue).length > 0) {
         state1 = { ...state1, ...skipValue };
         missing = nextMissing(state1);
@@ -415,6 +426,39 @@ export async function POST(request: Request) {
         ...finalResponse,
         assistantMessage: "No problem — we can add that later. " + nextQuestion,
       };
+    }
+
+    // Replace preamble + question with just the question when nextQuestion is given
+    if (nextQuestion && finalResponse.assistantMessage !== nextQuestion) {
+      const msg = finalResponse.assistantMessage.toLowerCase();
+      const hasPreamble =
+        msg.startsWith("given your") ||
+        msg.includes("we have suitable options") ||
+        msg.includes("that fit well within your budget") ||
+        (msg.includes("delivered in ") && msg.includes("bulk"));
+      if (hasPreamble || finalResponse.assistantMessage.length > nextQuestion.length + 20) {
+        finalResponse = {
+          ...finalResponse,
+          assistantMessage: nextQuestion,
+        };
+      }
+    }
+
+    // Replace verbose order-summary closing messages with a brief one
+    if (nextField === null && nextQuestion === null) {
+      const msg = finalResponse.assistantMessage.toLowerCase();
+      const isOrderSummary =
+        msg.includes("thank you for providing") ||
+        msg.includes("we will prepare") ||
+        msg.includes("our team will contact") ||
+        msg.includes("contact you shortly") ||
+        msg.includes("corporate gifting order");
+      if (isOrderSummary || finalResponse.assistantMessage.length > 120) {
+        finalResponse = {
+          ...finalResponse,
+          assistantMessage: "Thanks — you can submit your request now, or keep adding details before you send it.",
+        };
+      }
     }
 
     // 12) Lead saving

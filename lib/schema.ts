@@ -15,7 +15,14 @@ const ChatStateSchema = z
       .optional(),
     international: z.boolean().optional(),
     email: z.string().email().optional(),
+    phone: z.string().optional(),
     deadlineText: z.string().optional(),
+    distributionTiming: z
+      .enum(["all_at_once", "over_time", "unknown"])
+      .optional(),
+    addressHandling: z
+      .enum(["provided", "handled_by_us", "unknown"])
+      .optional(),
   })
   .strict();
 

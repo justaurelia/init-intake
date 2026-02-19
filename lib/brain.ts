@@ -53,7 +53,13 @@ export function extractFromText(text: string, prevState: ChatState): ChatState {
   }
   // Single number: quantity patterns
   const qtyPatterns = [
-    // number + traditional quantity keywords
+    // number + optional (embroidered|custom) + product keywords ("50 embroidered hoodies", "30 custom kits")
+    /\b(\d+)\s+(?:(?:embroidered|custom)\s+)?(?:hoodies?|shirts?|t-?shirts?|jackets?|bags?|kits?|boxes?|gifts?|mugs?|bottles?|notebooks?|devices?|items?|units?|pieces?|pcs)\b/i,
+
+    // number + optional adjective + traditional quantity keywords ("60 holiday gifts")
+    /\b(\d+)\s+(?:\w+\s+)?(?:people|employees|recipients|gifts|units|pcs|items)\b/i,
+
+    // number + traditional quantity keywords (no word in between)
     /(?:~|about|approx\.?|around)?\s*(\d+)\s*(?:people|employees|recipients|gifts|units|pcs|items)\b/i,
 
     // "for 75 people"
@@ -113,6 +119,7 @@ export function extractFromText(text: string, prevState: ChatState): ChatState {
       // bare $N when quantity context present (e.g. "30 swag around $35")
       /\b(?:around|about|~|approx\.?)\s*\$(\d+(?:\.\d+)?)\b/i,
       /\$\s*(\d+(?:\.\d+)?)\s*$/i, // "$35" at end of input
+      /\b(\d+(?:\.\d+)?)\s*\$/i,   // "70$", "35$" (number then dollar sign)
     ];
     for (const re of budgetPatterns) {
       const m = t.match(re);
@@ -163,9 +170,61 @@ export function extractFromText(text: string, prevState: ChatState): ChatState {
     }
   }
 
-  // ── international ─────────────────────────────────────────────────────────
-  // Only set to true — never set to false based on absence.
+  // ── distributionTiming (bulk only) ───────────────────────────────────────
+  const unsurePhrase =
+    /\b(?:not\s+sure|don'?t\s+know|unsure|no\s+idea|no\s+clue|idk|skip)\b/i.test(t);
+  if (next.shippingType === "bulk" && next.distributionTiming === undefined) {
+    if (unsurePhrase && t.length < 60) {
+      next.distributionTiming = "unknown";
+    } else if (
+      /\b(?:all\s+at\s+once|delivered\s+at\s+once|one\s+delivery|single\s+delivery|all\s+at\s+one\s+time)\b/i.test(
+        t
+      )
+    ) {
+      next.distributionTiming = "all_at_once";
+    } else if (
+      /\b(?:over\s+time|stored\s+and\s+distribut|stored\s+later|distribut(?:e|ed)\s+later|store\s+and\s+distribut)\b/i.test(
+        t
+      )
+    ) {
+      next.distributionTiming = "over_time";
+    }
+  }
+
+  // ── addressHandling (individual only) ─────────────────────────────────────
   if (
+    next.shippingType === "individual" &&
+    next.addressHandling === undefined
+  ) {
+    if (unsurePhrase && t.length < 60) {
+      next.addressHandling = "unknown";
+    } else if (
+      /\b(?:we\s+(?:will|'ll|provide)|we\s+have|i(?:'ll| will)\s+provide|provided\s+by\s+us|our\s+addresses|provide\s+the\s+addresses)\b/i.test(
+        t
+      )
+    ) {
+      next.addressHandling = "provided";
+    } else if (
+      /\b(?:you\s+(?:handle|collect)|handle\s+collection|handle\s+distribut|you\s+collect|handled\s+by\s+(?:you|us))\b/i.test(
+        t
+      )
+    ) {
+      next.addressHandling = "handled_by_us";
+    }
+  }
+
+  // ── international ─────────────────────────────────────────────────────────
+  // Explicit yes/no when answering "Any international destinations?"
+  const bareYes = /^\s*(yes|yeah|yep|yup|sure|correct|we do|we have)\s*[\.\!]?\s*$/i.test(t);
+  const bareNo = /^\s*(no|nope|nah|negative|we don't|we do not|us only|domestic only)\s*[\.\!]?\s*$/i.test(t);
+  const noInternational = /\b(us only|domestic only|no international|across the us|within the us|in the us|domestic)\b/i.test(t);
+  if (bareYes) {
+    next.international = true;
+  } else if (bareNo || noInternational) {
+    next.international = false;
+  }
+  // Keyword-based: international, outside US, Canada, UK, EU, etc.
+  else if (
     /international|outside\s+(?:the\s+)?us|canada|united\s+kingdom|\buk\b|\beu\b|europe|asia/i.test(
       t
     )
@@ -284,6 +343,16 @@ export function computeComplexity(state: ChatState): ComplexityResult {
   if (state.shippingType === "individual") {
     score += 2;
     reasons.push("Individual shipping");
+  }
+
+  if (state.distributionTiming === "over_time") {
+    score += 1;
+    reasons.push("Storage and distribution over time");
+  }
+
+  if (state.addressHandling === "handled_by_us") {
+    score += 1;
+    reasons.push("Address collection and distribution handled by us");
   }
 
   if (state.branding === "laser" || state.branding === "embroidery") {
@@ -406,6 +475,20 @@ export function nextMissing(state: ChatState): string[] {
 
   if (state.shippingType === "individual" && state.international === undefined) {
     missing.push("international");
+  }
+
+  if (
+    state.shippingType === "bulk" &&
+    state.distributionTiming === undefined
+  ) {
+    missing.push("distributionTiming");
+  }
+
+  if (
+    state.shippingType === "individual" &&
+    state.addressHandling === undefined
+  ) {
+    missing.push("addressHandling");
   }
 
   if (state.email === undefined && state.phone === undefined)

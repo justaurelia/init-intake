@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import type { ChatState } from "../lib/types";
 import type { BotResponse } from "../lib/schema";
 
-const PANEL_WIDTH = 860;
+const PANEL_WIDTH = 1100;
 const PANEL_HEIGHT = 560;
 const BREAKPOINT = 700;
 
@@ -18,25 +18,6 @@ function coreFilledCount(state: ChatState): number {
   return n;
 }
 
-function getQualificationStatus(
-  coreFilled: number,
-  mode: "streamlined" | "assisted" | "high_touch" | undefined
-): { label: string; dotColor: string } {
-  if (coreFilled < 4) {
-    return { label: "Qualification in progress", dotColor: "rgba(0,0,0,0.35)" };
-  }
-  if (mode === "streamlined") {
-    return { label: "Qualified — streamlined path", dotColor: "rgba(80,100,80,0.85)" };
-  }
-  if (mode === "assisted") {
-    return { label: "Qualified — assisted by our sales team", dotColor: "rgba(140,100,60,0.9)" };
-  }
-  if (mode === "high_touch") {
-    return { label: "Consultation required", dotColor: "rgba(120,70,70,0.85)" };
-  }
-  return { label: "Qualification in progress", dotColor: "rgba(0,0,0,0.35)" };
-}
-
 function shippingLabel(value: string): string {
   if (value === "individual") return "Individual addresses";
   if (value === "bulk") return "Bulk / one location";
@@ -46,6 +27,44 @@ function shippingLabel(value: string): string {
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
+
+const CheckIcon = () => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ flexShrink: 0, color: "#666", verticalAlign: "text-bottom" }}
+    aria-hidden
+  >
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+const PATH_CARDS = [
+  {
+    key: "streamlined" as const,
+    title: "Streamlined",
+    whatYouGet: ["Prebuilt bundles", "Clear lead time & budget fit", "Minimal coordination"],
+    nextSteps: ["Choose a bundle (see below)", "Provide contact details", "Receive confirmation & timeline"],
+  },
+  {
+    key: "assisted" as const,
+    title: "Assisted",
+    whatYouGet: ["Curated recommendations", "Branding + shipping guidance", "Coordination handled for you"],
+    nextSteps: ["We review your brief", "We share curated options", "Confirm details + ship"],
+  },
+  {
+    key: "high_touch" as const,
+    title: ["Consultation", "required"],
+    whatYouGet: ["Scoping call", "Proposal + timeline", "Dedicated coordination"],
+    nextSteps: ["Schedule scoping call", "Proposal + timeline", "Production kickoff"],
+  },
+] as const;
 
 function briefRows(state: ChatState): Array<{ label: string; value: string }> {
   const rows: Array<{ label: string; value: string }> = [];
@@ -111,6 +130,31 @@ const styles = {
   },
 } as const;
 
+/** Pills for questions with 2–3 options. Each field gets option pills + "Not sure". */
+const PILL_OPTIONS: Record<string, Array<{ label: string; message: string }>> = {
+  shippingType: [
+    { label: "One location (bulk)", message: "One location (bulk)" },
+    { label: "Individual addresses", message: "Individual addresses" },
+  ],
+  international: [
+    { label: "Yes", message: "Yes" },
+    { label: "No", message: "No" },
+  ],
+  distributionTiming: [
+    { label: "All at once", message: "All at once" },
+    { label: "Stored & distributed later", message: "Stored and distributed later" },
+  ],
+  addressHandling: [
+    { label: "We provide addresses", message: "We'll provide the addresses" },
+    { label: "You handle collection", message: "You handle collection" },
+  ],
+  branding: [
+    { label: "None", message: "No branding" },
+    { label: "Sticker or insert", message: "Sticker or insert" },
+    { label: "Laser or embroidery", message: "Laser or embroidery" },
+  ],
+};
+
 export default function ChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -121,7 +165,12 @@ export default function ChatWidget() {
   const [error, setError] = useState<string | null>(null);
   const [narrow, setNarrow] = useState(false);
   const [briefSent, setBriefSent] = useState(false);
+  const [selectedBundleIndex, setSelectedBundleIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setSelectedBundleIndex(null);
+  }, [lastResponse]);
 
   useEffect(() => {
     const check = () => setNarrow(typeof window !== "undefined" && window.innerWidth < BREAKPOINT);
@@ -222,8 +271,12 @@ export default function ChatWidget() {
   const nextField = lastResponse?.missing?.[0];
   const coreFilled = coreFilledCount(state);
   const showBriefPanel = true;
-  const qualificationStatus = getQualificationStatus(coreFilled, lastResponse?.mode ?? "streamlined");
-  const showShippingPills = !loading && nextField === "shippingType";
+  const activePath = lastResponse?.mode ?? null;
+  const hasContact =
+    (state.email !== undefined && state.email !== "") ||
+    (state.phone !== undefined && state.phone !== "");
+  const pillOptions = nextField && PILL_OPTIONS[nextField];
+  const showOptionPills = !loading && pillOptions;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -308,7 +361,7 @@ export default function ChatWidget() {
             flex: 1,
             minHeight: 0,
             width: "100%",
-            maxWidth: 860,
+            maxWidth: PANEL_WIDTH,
             alignSelf: "center",
             marginTop: 24,
             ...styles.panelBg,
@@ -356,28 +409,40 @@ export default function ChatWidget() {
               flex: 1,
               minHeight: 0,
               display: "flex",
-              flexDirection: narrow ? "column" : "row",
+              flexDirection: "column",
               overflow: "hidden",
             }}
           >
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: narrow ? "column" : "row",
+                overflow: "hidden",
+              }}
+            >
             {/* Chat column */}
             <div
               style={{
-                ...(narrow ? { flex: "1 1 auto", minHeight: 0 } : { width: "50%", flexShrink: 0 }),
+                ...(narrow ? { flex: "1 1 auto", minHeight: 0, minWidth: 0 } : { width: "50%", flexShrink: 0, minWidth: 0 }),
                 display: "flex",
                 flexDirection: "column",
                 minHeight: 0,
+                overflow: "hidden",
                 ...(narrow ? {} : { ...styles.border, borderTop: "none", borderBottom: "none", borderLeft: "none" }),
               }}
             >
               <div
                 style={{
                   flex: 1,
-                  overflow: "auto",
+                  overflowX: "hidden",
+                  overflowY: "auto",
                   padding: 16,
                   display: "flex",
                   flexDirection: "column",
                   gap: 4,
+                  minWidth: 0,
                 }}
               >
                 {history.length === 0 && (
@@ -424,52 +489,7 @@ export default function ChatWidget() {
                   </div>
                 )}
 
-                {lastResponse?.bundleSuggestions && lastResponse.bundleSuggestions.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <div
-                      style={{
-                        ...styles.body,
-                        fontSize: 12,
-                        ...styles.secondaryText,
-                        marginBottom: 8,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.04em",
-                      }}
-                    >
-                      Suggested options
-                    </div>
-                    {lastResponse.bundleSuggestions.map((b, i) => (
-                      <div key={i} style={styles.bundleCard}>
-                        <div style={{ ...styles.primaryText, fontWeight: 600, marginBottom: 4 }}>
-                          {b.name}
-                        </div>
-                        <div style={{ ...styles.secondaryText, fontSize: 13, marginBottom: 2 }}>
-                          ${b.unitPrice} per unit · {b.leadTimeDays} days lead time
-                        </div>
-                        {b.why && (
-                          <div style={{ ...styles.secondaryText, fontSize: 12, marginTop: 6 }}>
-                            {b.why}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {lastResponse?.leadCaptured && (
-                  <div
-                    style={{
-                      marginTop: 10,
-                      fontSize: 12,
-                      ...styles.secondaryText,
-                      fontStyle: "italic",
-                    }}
-                  >
-                    Project brief saved.
-                  </div>
-                )}
-
-                {showShippingPills && (
+                {showOptionPills && pillOptions && (
                   <div
                     style={{
                       marginTop: 12,
@@ -478,9 +498,30 @@ export default function ChatWidget() {
                       flexWrap: "wrap",
                     }}
                   >
+                    {pillOptions.map((opt, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => sendMessage(opt.message)}
+                        style={{
+                          ...styles.button,
+                          ...styles.primaryText,
+                          padding: "8px 16px",
+                          fontSize: 13,
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = "rgba(0,0,0,0.05)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = "white";
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                     <button
                       type="button"
-                      onClick={() => sendMessage("One location (bulk)")}
+                      onClick={() => sendMessage("Not sure")}
                       style={{
                         ...styles.button,
                         ...styles.primaryText,
@@ -494,40 +535,23 @@ export default function ChatWidget() {
                         e.currentTarget.style.background = "white";
                       }}
                     >
-                      One location (bulk)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => sendMessage("Individual addresses")}
-                      style={{
-                        ...styles.button,
-                        ...styles.primaryText,
-                        padding: "8px 16px",
-                        fontSize: 13,
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(0,0,0,0.05)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "white";
-                      }}
-                    >
-                      Individual addresses
+                      Not sure
                     </button>
                   </div>
                 )}
               </div>
-
+              {/* Chat footer: input + send */}
               <div
                 style={{
                   padding: 12,
                   ...styles.border,
                   borderLeft: "none",
                   borderRight: "none",
-                  borderBottom: narrow ? "none" : undefined,
+                  borderBottom: "none",
+                  flexShrink: 0,
                   display: "flex",
                   gap: 8,
-                  flexShrink: 0,
+                  alignItems: "center",
                 }}
               >
                 <input
@@ -590,7 +614,7 @@ export default function ChatWidget() {
               </div>
             </div>
 
-            {/* Side panel: How this works, Qualification status, Project brief */}
+            {/* Side panel: Your path, Next steps, Project brief, Submit request */}
             {showBriefPanel && (
               <aside
                 style={{
@@ -612,14 +636,16 @@ export default function ChatWidget() {
                 }}
               >
                 <div
-                  style={{
-                    flex: 1,
-                    minHeight: 0,
-                    overflow: "auto",
-                    padding: 20,
-                  }}
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflowX: "hidden",
+                  overflowY: "auto",
+                  padding: 20,
+                  minWidth: 0,
+                }}
                 >
-                {/* Section 1 — How this works */}
+                {/* Your path */}
                 <div
                   style={{
                     ...styles.body,
@@ -628,66 +654,175 @@ export default function ChatWidget() {
                     textTransform: "uppercase",
                     letterSpacing: "0.06em",
                     marginBottom: 8,
+                    width: "100%",
                   }}
                 >
-                  How this works
+                  Your path
                 </div>
-                <p
-                  style={{
-                    ...styles.body,
-                    fontSize: 13,
-                    ...styles.secondaryText,
-                    lineHeight: 1.55,
-                    margin: 0,
-                    marginBottom: 20,
-                    paddingBottom: 20,
-                    borderBottom: "1px solid rgba(0,0,0,0.1)",
-                  }}
-                >
-                  We structure your request to understand scope, budget, and operational complexity
-                  before routing it to the right path. This helps reduce coordination time and
-                  ensures the appropriate team reviews your project.
-                </p>
-
-                {/* Section 2 — Qualification status */}
-                <div
-                  style={{
-                    ...styles.body,
-                    fontSize: 11,
-                    ...styles.secondaryText,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    marginBottom: 8,
-                  }}
-                >
-                  Qualification status
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 20,
-                    paddingBottom: 20,
-                    borderBottom: "1px solid rgba(0,0,0,0.1)",
-                  }}
-                >
-                  <span
+                {activePath === null && (
+                  <p
                     style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: "50%",
-                      background: qualificationStatus.dotColor,
-                      flexShrink: 0,
+                      ...styles.body,
+                      fontSize: 12,
+                      ...styles.secondaryText,
+                      lineHeight: 1.4,
+                      margin: 0,
+                      marginBottom: 12,
                     }}
-                    aria-hidden="true"
-                  />
-                  <span style={{ ...styles.primaryText, fontSize: 13 }}>
-                    {qualificationStatus.label}
-                  </span>
+                  >
+                    We'll recommend the right path once a few key details are captured.
+                  </p>
+                )}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: narrow ? "1fr" : "repeat(3, minmax(0, 1fr))",
+                    gap: 12,
+                    marginBottom: 20,
+                    minWidth: 0,
+                  }}
+                >
+                  {PATH_CARDS.map((card) => {
+                    const isActive = activePath === card.key;
+                    return (
+                      <div
+                        key={card.key}
+                        style={{
+                          ...styles.body,
+                          background: "white",
+                          border: isActive
+                            ? "1px solid rgba(0,0,0,0.2)"
+                            : "1px solid rgba(0,0,0,0.14)",
+                          borderRadius: 8,
+                          padding: 14,
+                          position: "relative",
+                          backgroundColor: isActive ? "rgba(0,0,0,0.04)" : "white",
+                          minWidth: 0,
+                          overflow: "hidden",
+                          overflowWrap: "break-word",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {isActive && (
+                          <span
+                            style={{
+                              position: "absolute",
+                              top: 10,
+                              right: 10,
+                              fontSize: 10,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                              ...styles.secondaryText,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              background: "rgba(0,0,0,0.06)",
+                            }}
+                          >
+                            Recommended
+                          </span>
+                        )}
+                        <div
+                          style={{
+                            ...styles.serif,
+                            ...styles.primaryText,
+                            fontSize: 15,
+                            fontWeight: 600,
+                            marginBottom: 4,
+                            marginTop: 24,
+                            paddingRight: 70,
+                            width: "100%",
+                            boxSizing: "border-box",
+                            minHeight: Array.isArray(card.title) ? undefined : 36,
+                          }}
+                        >
+                          {Array.isArray(card.title) ? (
+                            card.title.map((line, i) => (
+                              <div key={i} style={{ whiteSpace: "nowrap" }}>
+                                {line}
+                              </div>
+                            ))
+                          ) : (
+                            <span style={{ whiteSpace: "nowrap" }}>{card.title}</span>
+                          )}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            ...styles.secondaryText,
+                            marginTop: 10,
+                          }}
+                        >
+                          {card.whatYouGet.map((item, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                marginBottom: 2,
+                                display: "flex",
+                                alignItems: "flex-start",
+                                gap: 7,
+                              }}
+                            >
+                              <CheckIcon />
+                              <span>{item}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {/* Section 3 — Project brief */}
+                {/* Next steps */}
+                <div
+                  style={{
+                    ...styles.body,
+                    fontSize: 11,
+                    ...styles.secondaryText,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    marginBottom: 8,
+                  }}
+                >
+                  {activePath ? "Next steps for your project" : "What happens next"}
+                </div>
+                {activePath === null ? (
+                  <p
+                    style={{
+                      ...styles.body,
+                      fontSize: 13,
+                      ...styles.secondaryText,
+                      lineHeight: 1.4,
+                      margin: 0,
+                      marginBottom: 20,
+                      paddingBottom: 20,
+                      borderBottom: "1px solid rgba(0,0,0,0.1)",
+                    }}
+                  >
+                    Add a few details and we'll route you to the right level of support.
+                  </p>
+                ) : (
+                  <ol
+                    style={{
+                      ...styles.body,
+                      fontSize: 13,
+                      ...styles.primaryText,
+                      lineHeight: 1.5,
+                      margin: 0,
+                      marginBottom: 20,
+                      paddingLeft: 18,
+                      paddingBottom: 20,
+                      borderBottom: "1px solid rgba(0,0,0,0.1)",
+                    }}
+                  >
+                    {PATH_CARDS.find((c) => c.key === activePath)?.nextSteps.map((step, i) => (
+                      <li key={i} style={{ marginBottom: 4 }}>
+                        {step}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+
+                {/* Project brief */}
                 <div
                   style={{
                     ...styles.body,
@@ -731,60 +866,186 @@ export default function ChatWidget() {
                   ))}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleSendToTeam}
+                {lastResponse?.bundleSuggestions && lastResponse.bundleSuggestions.length > 0 && (
+                  <>
+                    <div
+                      style={{
+                        ...styles.body,
+                        fontSize: 11,
+                        ...styles.secondaryText,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                        marginBottom: 14,
+                        marginTop: 20,
+                      }}
+                    >
+                      Suggested bundles
+                    </div>
+                    <div
+                      style={{
+                        background: "transparent",
+                        minWidth: 0,
+                        overflow: "hidden",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
+                      }}
+                    >
+                      {lastResponse.bundleSuggestions.map((b, i) => {
+                        const isSelected = selectedBundleIndex === i;
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setSelectedBundleIndex(i)}
+                            style={{
+                              ...styles.body,
+                              fontSize: 13,
+                              padding: "14px 16px",
+                              paddingRight: 56,
+                              textAlign: "left",
+                              cursor: "pointer",
+                              border: isSelected
+                                ? "1px solid rgba(0,0,0,0.2)"
+                                : "1px solid rgba(0,0,0,0.14)",
+                              borderRadius: 8,
+                              background: isSelected ? "rgba(0,0,0,0.04)" : "white",
+                              position: "relative",
+                              outline: "none",
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) {
+                                e.currentTarget.style.background = "rgba(0,0,0,0.02)";
+                                e.currentTarget.style.borderColor = "rgba(0,0,0,0.18)";
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) {
+                                e.currentTarget.style.background = "white";
+                                e.currentTarget.style.borderColor = "rgba(0,0,0,0.14)";
+                              }
+                            }}
+                          >
+                            {isSelected && (
+                              <span
+                                style={{
+                                  position: "absolute",
+                                  top: 10,
+                                  right: 10,
+                                  fontSize: 10,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.04em",
+                                  ...styles.secondaryText,
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  background: "rgba(0,0,0,0.06)",
+                                }}
+                              >
+                                Selected
+                              </span>
+                            )}
+                            <div style={{ ...styles.primaryText, fontWeight: 600, marginBottom: 2 }}>
+                              {b.name}
+                            </div>
+                            <div style={{ ...styles.secondaryText, fontSize: 12 }}>
+                              ${b.unitPrice} per unit · {b.leadTimeDays} days lead time
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
+                </div>
+                {/* Submit request cell below project brief */}
+                <div
                   style={{
-                    fontFamily: "Georgia, serif",
-                    display: "inline-flex",
+                    padding: 12,
+                    ...styles.border,
+                    borderLeft: "none",
+                    borderRight: "none",
+                    borderBottom: "none",
+                    flexShrink: 0,
+                    display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    gap: 10,
-                    marginTop: 14,
-                    width: "100%",
-                    padding: "12px 24px",
-                    fontSize: 15,
-                    fontWeight: 400,
-                    color: "rgb(255, 255, 255)",
-                    background: "rgb(33, 33, 33)",
-                    border: "none",
-                    borderRadius: 999,
-                    cursor: "pointer",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "#333";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgb(33, 33, 33)";
+                    backgroundColor: "#F5F1EC",
                   }}
                 >
-                  <span
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: "50%",
-                      background: "#fff",
-                      flexShrink: 0,
-                    }}
-                    aria-hidden="true"
-                  />
-                  <span style={{ textTransform: "lowercase" }}>send to the team</span>
-                </button>
-                {briefSent && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      fontSize: 12,
-                      ...styles.secondaryText,
-                      fontStyle: "italic",
-                    }}
-                  >
-                    Project sent — we'll follow up.
-                  </div>
-                )}
+                  {briefSent ? (
+                    <div
+                      style={{
+                        fontFamily: "Georgia, serif",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 10,
+                        padding: "10px 20px",
+                        fontSize: 14,
+                        fontWeight: 400,
+                        color: "rgb(255, 255, 255)",
+                        background: "rgb(33, 33, 33)",
+                        borderRadius: 999,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 5,
+                          height: 5,
+                          borderRadius: "50%",
+                          background: "#fff",
+                          flexShrink: 0,
+                        }}
+                        aria-hidden="true"
+                      />
+                      <span style={{ textTransform: "lowercase" }}>submitted</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSendToTeam}
+                      disabled={!hasContact}
+                      title={!hasContact ? "fill your contact info to proceed" : undefined}
+                      style={{
+                        fontFamily: "Georgia, serif",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 10,
+                        padding: "10px 20px",
+                        fontSize: 14,
+                        fontWeight: 400,
+                        color: !hasContact ? "rgba(255,255,255,0.6)" : "rgb(255, 255, 255)",
+                        background: !hasContact ? "rgba(33,33,33,0.5)" : "rgb(33, 33, 33)",
+                        border: "none",
+                        borderRadius: 999,
+                        cursor: !hasContact ? "not-allowed" : "pointer",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!e.currentTarget.disabled) e.currentTarget.style.background = "#333";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!e.currentTarget.disabled) e.currentTarget.style.background = "rgb(33, 33, 33)";
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 5,
+                          height: 5,
+                          borderRadius: "50%",
+                          background: !hasContact ? "rgba(255,255,255,0.6)" : "#fff",
+                          flexShrink: 0,
+                        }}
+                        aria-hidden="true"
+                      />
+                      <span style={{ textTransform: "lowercase" }}>Submit request</span>
+                    </button>
+                  )}
                 </div>
               </aside>
             )}
+            </div>
           </div>
         </div>
       )}
